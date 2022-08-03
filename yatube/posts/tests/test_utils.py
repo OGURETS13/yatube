@@ -1,12 +1,9 @@
-import os
 import tempfile
 
 from django.conf import settings
 from django.core.files.uploadedfile import SimpleUploadedFile
 
-TEMP_MEDIA_ROOT = tempfile.mkdtemp(
-    dir=os.path.join(settings.BASE_DIR, 'tmp')
-)
+TEMP_MEDIA_ROOT = tempfile.mkdtemp(dir=settings.BASE_DIR)
 
 small_gif = (
     b'\x47\x49\x46\x38\x39\x61\x02\x00'
