@@ -6,7 +6,7 @@ from django.urls import reverse
 
 from faker import Faker
 
-from .test_utils import (
+from .utils import (
     small_gif,
     TEMP_MEDIA_ROOT,
     uploaded_image,
@@ -38,8 +38,8 @@ class PostFormTests(TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        super().tearDownClass()
         shutil.rmtree(TEMP_MEDIA_ROOT, ignore_errors=True)
+        super().tearDownClass()
 
     def setUp(self):
         self.authorized_client = Client()

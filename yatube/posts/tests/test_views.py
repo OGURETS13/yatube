@@ -4,12 +4,11 @@ import shutil
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
-from django.template.defaultfilters import linebreaks
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from faker import Faker
 
-from .test_utils import (
+from .utils import (
     TEMP_MEDIA_ROOT,
     uploaded_image
 )
@@ -25,11 +24,8 @@ class PostsViewsTests(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.user = User.objects.create_user(username=fake.user_name())
-        cls.user2 = User.objects.create_user(username=fake.user_name())
         cls.authorized_client = Client()
-        cls.nonauthor = Client()
         cls.authorized_client.force_login(cls.user)
-        cls.nonauthor.force_login(cls.user2)
 
         cls.group = Group.objects.create(
             title=fake.text(max_nb_chars=200),
@@ -52,8 +48,8 @@ class PostsViewsTests(TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        super().tearDownClass()
         shutil.rmtree(TEMP_MEDIA_ROOT, ignore_errors=True)
+        super().tearDownClass()
 
     def setUp(self):
         cache.clear()
@@ -69,17 +65,19 @@ class PostsViewsTests(TestCase):
             text=fake.text(max_nb_chars=200),
             group=PostsViewsTests.group
         )
-        new_post_copy = Post.objects.get(id=new_post.id)
         response = self.client.get(reverse('posts:index'))
+        page_content1 = response.content
         new_post.delete()
         response = self.client.get(reverse('posts:index'))
+        page_content2 = response.content
 
-        self.assertIn(linebreaks(new_post_copy.text), str(response.content))
+        self.assertEqual(page_content1, page_content2)
 
         cache.clear()
         response = self.client.get(reverse('posts:index'))
+        page_content3 = response.content
 
-        self.assertNotIn(linebreaks(new_post_copy.text), str(response.content))
+        self.assertNotEqual(page_content2, page_content3)
 
     def test_post_in_index(self):
         """
@@ -174,7 +172,7 @@ class PostsViewsTests(TestCase):
 
             self.assertIn('form', response.context)
             self.assertIsInstance(response.context['form'], PostForm)
-            if 'is_edit' in response.context.keys():
+            if 'is_edit' in response.context:
                 self.assertTrue(response.context['is_edit'])
 
     def test_post_not_in_wrong_group(self):
@@ -190,12 +188,34 @@ class PostsViewsTests(TestCase):
             response.context['page_obj'].object_list
         )
 
+
+class PostsFollowTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create(
+            username=fake.user_name()
+        )
+        cls.authorized_client = Client()
+        cls.authorized_client.force_login(cls.user)
+
+    def setUp(self):
+        self.author = User.objects.create(
+            username=fake.user_name()
+        )
+        self.post_number = random.randint(1, settings.POSTS_PER_PAGE - 1)
+        Post.objects.bulk_create([
+            Post(
+                text=fake.text(max_nb_chars=200),
+                author=self.author,
+            ) for _ in range(self.post_number)
+        ])
+
     def test_follow_index(self):
         """
         Проверяем, что после подписки на автора на странице подписок
-        появляются его посты, а после отписки посты исчезают
+        появляются его посты
         """
-        response = PostsViewsTests.nonauthor.get(
+        response = PostsFollowTests.authorized_client.get(
             reverse('posts:follow_index')
         )
         self.assertEqual(
@@ -203,23 +223,42 @@ class PostsViewsTests(TestCase):
             0
         )
 
-        Follow.objects.create(
-            user=PostsViewsTests.user2,
-            author=PostsViewsTests.user
-        )
-        response = PostsViewsTests.nonauthor.get(
+        PostsFollowTests.authorized_client.get(
+            reverse(
+                'posts:profile_follow',
+                args=(self.author.username,)
+            ))
+        response = PostsFollowTests.authorized_client.get(
             reverse('posts:follow_index')
         )
         self.assertEqual(
             len(response.context['page_obj']),
-            1
+            self.post_number
         )
 
-        Follow.objects.filter(
-            user=PostsViewsTests.user2,
-            author=PostsViewsTests.user
-        ).delete()
-        response = PostsViewsTests.nonauthor.get(
+    def test_unfollow_index(self):
+        """
+        Проверяем, что после отписки от автора на странице подписок
+        нет его постов
+        """
+        Follow.objects.create(
+            user=PostsFollowTests.user,
+            author=self.author
+        )
+        response = PostsFollowTests.authorized_client.get(
+            reverse('posts:follow_index')
+        )
+        self.assertEqual(
+            len(response.context['page_obj']),
+            self.post_number
+        )
+
+        PostsFollowTests.authorized_client.get(
+            reverse(
+                'posts:profile_unfollow',
+                args=(self.author.username,)
+            ))
+        response = PostsFollowTests.authorized_client.get(
             reverse('posts:follow_index')
         )
         self.assertEqual(
@@ -228,26 +267,58 @@ class PostsViewsTests(TestCase):
         )
 
     def test_new_posts_emerge_on_follow_index(self):
-        response = PostsViewsTests.nonauthor.get(
-            reverse('posts:follow_index')
-        )
+        """
+        Новый пост появляется в ленте подписчика, но не появляется в ленте
+        неподписчика.
+        """
+        user2 = User.objects.create_user(username=fake.slug())
+        user2_client = Client()
+        user2_client.force_login(user2)
         Follow.objects.create(
-            user=PostsViewsTests.user2,
-            author=PostsViewsTests.user
+            user=PostsFollowTests.user,
+            author=self.author
         )
-        response = PostsViewsTests.nonauthor.get(
+        Post.objects.create(
+            text=fake.text(max_nb_chars=200),
+            author=self.author,
+        )
+
+        response = PostsFollowTests.authorized_client.get(
             reverse('posts:follow_index')
         )
         self.assertEqual(
             len(response.context['page_obj']),
-            1
+            self.post_number + 1
         )
-        response = PostsViewsTests.authorized_client.get(
+
+        response = user2_client.get(
             reverse('posts:follow_index')
         )
         self.assertEqual(
             len(response.context['page_obj']),
             0
+        )
+
+    def test_user_cannot_follow_self(self):
+        """
+        Проверяем, что подписаться на самого себя не удаётся, а при попытке
+        не создаётся новых подписок.
+        """
+        follow_count = Follow.objects.count()
+        PostsFollowTests.authorized_client.get(
+            reverse(
+                'posts:profile_follow',
+                args=(PostsFollowTests.user.username,)
+            ))
+        self.assertTrue(
+            not Follow.objects.filter(
+                user=PostsFollowTests.user,
+                author=PostsFollowTests.user
+            ).exists()
+        )
+        self.assertEqual(
+            Follow.objects.count(),
+            follow_count
         )
 
 

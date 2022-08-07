@@ -19,7 +19,11 @@ class Post(models.Model):
         verbose_name='Текст поста',
         help_text='Текст нового поста',
     )
-    pub_date = models.DateTimeField(auto_now_add=True)
+    pub_date = models.DateTimeField(
+        'Дата публикации',
+        auto_now_add=True,
+        db_index=True
+    )
     author = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
@@ -83,3 +87,10 @@ class Follow(models.Model):
         on_delete=models.CASCADE,
         related_name='following'
     )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'author'],
+                name='unique_follow'),
+        ]
