@@ -50,4 +50,3 @@ jobs:
         ALLOWED_HOSTS: "*"
       run: |
         py.test
-#
