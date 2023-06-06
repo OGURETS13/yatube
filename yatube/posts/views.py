@@ -13,7 +13,7 @@ from .models import Follow, Group, Post
 from .utils import get_page_obj
 
 User = get_user_model()
-
+#
 
 @cache_page(settings.CACHE_TIME)
 def index(request):
